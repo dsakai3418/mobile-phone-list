@@ -71,12 +71,12 @@ def extract_mobile_numbers(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
         # make a copy of the row and add new column
         new_row = row.copy()
         new_row['extracted_mobile_numbers'] = ','.join(deduped) if deduped else ''
-        if deduped:
+        if deduped: # 携帯番号が見つかった行のみ結果に含める
             results.append(new_row)
     if results:
         return pd.DataFrame(results)
     else:
-        # empty DataFrame with same columns + extracted column
+        # 携帯番号が見つからなかった場合、元のカラムと新しいカラムを持つ空のDataFrameを返す
         cols = list(df.columns) + ['extracted_mobile_numbers']
         return pd.DataFrame(columns=cols)
 
@@ -86,10 +86,24 @@ st.write('CSVファイルをアップロードしてください。')
 uploaded_file = st.file_uploader("CSVファイルをここにドラッグ＆ドロップ、またはクリックして選択", type="csv")
 
 if uploaded_file is not None:
-    try:
-        df = pd.read_csv(uploaded_file)
-    except Exception as e:
-        st.error(f"CSVファイルの読み込み中にエラーが発生しました: {e}")
+    df = None
+    # エンコーディングを複数試す
+    encodings = ['utf-8', 'shift_jis', 'cp932', 'euc_jp']
+    for enc in encodings:
+        try:
+            # uploaded_file は BytesIO オブジェクトなので、read() でバイト列を読み込み、StringIOでPandasに渡す
+            uploaded_file.seek(0) # ファイルポインタを先頭に戻す
+            df = pd.read_csv(uploaded_file, encoding=enc)
+            st.success(f"CSVファイルを '{enc}' エンコーディングで正常に読み込みました。")
+            break # 成功したらループを抜ける
+        except UnicodeDecodeError:
+            continue # 次のエンコーディングを試す
+        except Exception as e:
+            st.error(f"CSVファイルの読み込み中に予期せぬエラーが発生しました: {e} (エンコーディング: {enc})")
+            st.stop()
+    
+    if df is None:
+        st.error("CSVファイルをサポートされているいずれのエンコーディングでも読み込めませんでした。ファイルを確認してください。")
         st.stop()
 
     st.write("### アップロードされたCSVデータ（プレビュー）")
@@ -112,7 +126,7 @@ if uploaded_file is not None:
                 st.success(f"{len(extracted_df)} 行で携帯番号が見つかりました。")
                 st.dataframe(extracted_df)
 
-                csv = extracted_df.to_csv(index=False).encode('utf-8')
+                csv = extracted_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig') # BOM付きUTF-8
                 st.download_button(
                     label="抽出結果をCSVでダウンロード",
                     data=csv,
@@ -128,4 +142,5 @@ st.write("---")
 st.write("### 使用上の注意とヒント")
 st.write("・セルにハイフンやスペース、全角数字、+81 のような国際表記が含まれていても抽出できます。")
 st.write("・セル内に複数の番号がある場合、すべて抽出して 'extracted_mobile_numbers' 列にカンマ区切りで表示します。")
+st.write("・このアプリは 'utf-8', 'shift_jis', 'cp932', 'euc_jp' のエンコーディングを自動的に試します。")
 st.write("・より厳密なバリデーションや別キャリアの番号対応が必要ならルールを調整してください。")
